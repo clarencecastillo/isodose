@@ -1,9 +1,11 @@
-import os
-import sys
+import os, sys, queue, multiprocessing
 from multiprocessing import Process
+
 import dose
+import events
 
 from django.db.models import Manager
+from django.utils import timezone
 
 from . import models
 
@@ -89,7 +91,7 @@ class SimulationManager(Manager):
         return instance
 
     @staticmethod
-    def __simulation_woker__(parameters):
+    def __simulation_woker__(parameters, eb):
 
         class simulation_functions(dose.dose_functions):
 
@@ -153,15 +155,16 @@ class SimulationManager(Manager):
             def deployment_scheme(self, Populations, pop_name, World):
                 pass
 
-        if not os.path.exists('logs'): os.makedirs('logs')
+        if not os.path.exists('logs'):
+            os.makedirs('logs')
         sys.stdout = open("logs/" + str(os.getpid()) + ".log", "w")
-        dose.simulate(parameters, simulation_functions)
-        return
+
+        dose.simulate(parameters, simulation_functions, eb)
 
     @staticmethod
     def parse_simulation(sim):
 
-        return {
+        parameters = {
             "simulation_name": sim.name,
             "population_names": [pop.name for pop in sim.populations.all()],
             "population_locations": [[(loc.x, loc.y, loc.z) for loc in pop.locations.all()] for pop in
@@ -194,8 +197,51 @@ class SimulationManager(Manager):
             "database_logging_frequency": sim.database_logging_frequency
         }
 
+        if sim.initial_chromosome is not None:
+            parameters['initial_chromosome'] = list(sim.initial_chromosome)
+
+        return parameters
+
+    @staticmethod
+    def on_simulation_start(data, trial):
+        trial.status = models.Trial.RUNNING
+        trial.directory = data['directory']
+        trial.max_generation = data['max_generation']
+        trial.current_generation = data['generation']
+        trial.start_time = timezone.make_aware(data['time_start'], timezone.get_current_timezone())
+        trial.save(update_fields=['status', 'directory', 'max_generation', 'current_generation', 'start_time'])
+
+    @staticmethod
+    def on_generation_world_update(data, trial):
+        pass
+
+    @staticmethod
+    def on_generation_populations_update(data, trial):
+        trial.current_generation = data['generation']
+        trial.save(update_fields=['current_generation'])
+
+    @staticmethod
+    def on_simulation_end(data, trial):
+        trial.status = models.Trial.DONE
+        trial.end_time = timezone.make_aware(data['time_end'], timezone.get_current_timezone())
+        trial.save(update_fields=['status', 'end_time'])
+
     @staticmethod
     def run_simulation(simulation):
+
+        trial = models.Trial(simulation = simulation)
+        trial.save()
+
+        eb = dose.event_broker()
+        eb.subscribe(events.SIMULATION_START,
+                     lambda data: SimulationManager.on_simulation_start(data, trial))
+        eb.subscribe(events.SIMULATION_END,
+                     lambda data: SimulationManager.on_simulation_end(data, trial))
+        eb.subscribe(events.GENERATION_POPULATIONS_UPDATE,
+                     lambda data: SimulationManager.on_generation_populations_update(data, trial))
+        eb.subscribe(events.GENERATION_WORLD_UPDATE,
+                     lambda data: SimulationManager.on_generation_world_update(data, trial))
+
         parameters = SimulationManager.parse_simulation(simulation)
-        simulation = Process(target=SimulationManager.__simulation_woker__, args=(parameters,))
+        simulation = Process(target=SimulationManager.__simulation_woker__, args=(parameters, eb, ))
         simulation.start()

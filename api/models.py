@@ -41,6 +41,7 @@ class Simulation(models.Model):
     chromosome_bases = models.CharField(null=False, blank=False, default="01", validators=[validate_chromose], max_length=240)
     background_mutation = models.DecimalField(null=False, blank=False, default=0.1, max_digits=5, decimal_places=3)
     additional_mutation = models.DecimalField(null=False, blank=False, default=0.0, max_digits=5, decimal_places=3)
+    initial_chromosome = models.CharField(null=True, blank=False, max_length=240)
     chromosome_size = models.IntegerField(null=False, blank=False, default=30)
     genome_size = models.IntegerField(null=False, blank=False, default=1)
     max_tape_length = models.IntegerField(null=False, blank=False, default=50)
@@ -75,7 +76,7 @@ class Population(models.Model):
 
 class RagarajaInstruction(models.Model):
 
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name='ragaraja_instructions')
+    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, null=True, related_name='ragaraja_instructions')
     instruction = models.CharField(
         max_length=3,
         choices=[(inst, inst) for inst in list(ragaraja)]
@@ -101,8 +102,11 @@ class Trial(models.Model):
     )
 
     simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, null=True, related_name='trials')
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField()
+    directory = models.CharField(null=True, max_length=240)
+    max_generation = models.IntegerField(null=True)
+    current_generation = models.IntegerField(null=True)
+    start_time = models.DateTimeField(null=True)
+    end_time = models.DateTimeField(null=True)
     status = models.CharField(
         max_length=1,
         choices=STATUSES,

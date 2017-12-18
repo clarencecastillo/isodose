@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Simulation, Population, Location, RagarajaInstruction
+from .models import Simulation, Population, Location, RagarajaInstruction, Trial
 
 class LocationSerializer(serializers.ModelSerializer):
 
@@ -37,3 +37,15 @@ class SimulationSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         simulation = Simulation.objects.update(instance, **validated_data)
         return simulation
+
+class TrialListSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Trial
+        fields = ['id', 'max_generation', 'current_generation', 'status']
+
+class TrialSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Trial
+        fields = ['id', 'directory', 'max_generation', 'current_generation', 'start_time', 'end_time', 'status']
