@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.core import validators
@@ -32,6 +33,7 @@ class Simulation(models.Model):
         (TRANSLOCATE, 'Translocate')
     )
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(null=False, blank=False, max_length=240)
     notes = models.CharField(null=False, default="", max_length=960)
     date_created = models.DateTimeField(null=False, blank=False, auto_now_add=True)
@@ -71,11 +73,13 @@ class Simulation(models.Model):
 
 class Population(models.Model):
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name='populations')
     name = models.CharField(max_length=240)
 
 class RagarajaInstruction(models.Model):
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, null=True, related_name='ragaraja_instructions')
     instruction = models.CharField(
         max_length=3,
@@ -84,6 +88,7 @@ class RagarajaInstruction(models.Model):
 
 class Location(models.Model):
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     population = models.ForeignKey(Population, on_delete=models.CASCADE, related_name='locations')
     x = models.IntegerField()
     y = models.IntegerField()
@@ -101,6 +106,7 @@ class Trial(models.Model):
         (DONE, 'Done')
     )
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, null=True, related_name='trials')
     directory = models.CharField(null=True, max_length=240)
     max_generation = models.IntegerField(null=True)
