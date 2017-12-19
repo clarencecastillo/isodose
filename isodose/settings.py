@@ -27,7 +27,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # 'drf_openapi'
+    'channels'
 ]
 
 MIDDLEWARE = [
@@ -96,6 +96,12 @@ REST_FRAMEWORK = {
     'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning'
 }
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "asgiref.inmemory.ChannelLayer",
+        "ROUTING": "api.routing.channel_routing",
+    },
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/2.0/topics/i18n/

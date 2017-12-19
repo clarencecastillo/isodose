@@ -1,4 +1,4 @@
-import os, sys, queue, multiprocessing
+import os, sys
 from multiprocessing import Process
 
 import dose
@@ -6,10 +6,111 @@ import events
 
 from django.db.models import Manager
 from django.utils import timezone
+from channels import Group
 
 from . import models
 
+
+def simulation_worker(parameters, eb):
+
+    class SimulationFunctions(dose.dose_functions):
+
+        def organism_movement(self, populations, pop_name, world):
+            pass
+
+        def organism_location(self, populations, pop_name, world):
+            pass
+
+        def ecoregulate(self, world):
+            pass
+
+        def update_ecology(self, world, x, y, z):
+            pass
+
+        def update_local(self, world, x, y, z):
+            pass
+
+        def report(self, world):
+            pass
+
+        def fitness(self, populations, pop_name):
+            pass
+
+        def mutation_scheme(self, organism):
+            organism.genome[0].rmutate(parameters["mutation_type"],
+                                       parameters["additional_mutation"])
+
+        def prepopulation_control(self, populations, pop_name):
+            pass
+
+        def mating(self, populations, pop_name):
+            pass
+
+        def postpopulation_control(self, populations, pop_name):
+            pass
+
+        def generation_events(self, populations, pop_name):
+            pass
+
+        def population_report(self, populations, pop_name):
+            sequences = [''.join(org.genome[0].sequence) for org in populations[pop_name].agents]
+            identities = [org.status['identity'] for org in populations[pop_name].agents]
+            locations = [str(org.status['location']) for org in populations[pop_name].agents]
+            demes = [org.status['deme'] for org in populations[pop_name].agents]
+            return '\n'.join(sequences)
+
+        def database_report(self, con, cur, start_time,
+                            populations, world, generation_count):
+            try:
+                dose.database_report_populations(con, cur, start_time,
+                                                 populations, generation_count)
+            except:
+                pass
+            try:
+                dose.database_report_world(con, cur, start_time,
+                                           world, generation_count)
+            except:
+                pass
+
+        def deployment_scheme(self, populations, pop_name, world):
+            pass
+
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+    sys.stdout = open("logs/" + str(os.getpid()) + ".log", "w")
+
+    dose.simulate(parameters, SimulationFunctions, eb)
+
+
+def on_simulation_start(data, trial):
+    trial.status = models.Trial.RUNNING
+    trial.directory = data['directory']
+    trial.max_generation = data['max_generation']
+    trial.current_generation = data['generation']
+    trial.start_time = timezone.make_aware(data['time_start'], timezone.get_current_timezone())
+    trial.save(update_fields=['status', 'directory', 'max_generation', 'current_generation', 'start_time'])
+
+
+def on_generation_world_update(data, trial):
+    pass
+
+
+def on_generation_populations_update(data, trial):
+    trial.current_generation = data['generation']
+    trial.save(update_fields=['current_generation'])
+    Group(str(trial.id)).send({
+        "text": "Current generation: " + str(trial.current_generation)
+    }, immediately=True)
+
+
+def on_simulation_end(data, trial):
+    trial.status = models.Trial.DONE
+    trial.end_time = timezone.make_aware(data['time_end'], timezone.get_current_timezone())
+    trial.save(update_fields=['status', 'end_time'])
+
+
 class SimulationManager(Manager):
+
 
     def create(self, **kwargs):
 
@@ -23,8 +124,8 @@ class SimulationManager(Manager):
 
         for pop_data in populations_data:
             population = models.Population(
-                simulation = simulation,
-                name = pop_data['name']
+                simulation=simulation,
+                name=pop_data['name']
             )
             population.save()
 
@@ -91,78 +192,17 @@ class SimulationManager(Manager):
         return instance
 
     @staticmethod
-    def __simulation_woker__(parameters, eb):
+    def run_simulation(sim, trial):
 
-        class simulation_functions(dose.dose_functions):
-
-            def organism_movement(self, Populations, pop_name, World):
-                pass
-
-            def organism_location(self, Populations, pop_name, World):
-                pass
-
-            def ecoregulate(self, World):
-                pass
-
-            def update_ecology(self, World, x, y, z):
-                pass
-
-            def update_local(self, World, x, y, z):
-                pass
-
-            def report(self, World):
-                pass
-
-            def fitness(self, Populations, pop_name):
-                pass
-
-            def mutation_scheme(self, organism):
-                organism.genome[0].rmutate(parameters["mutation_type"],
-                                           parameters["additional_mutation"])
-
-            def prepopulation_control(self, Populations, pop_name):
-                pass
-
-            def mating(self, Populations, pop_name):
-                pass
-
-            def postpopulation_control(self, Populations, pop_name):
-                pass
-
-            def generation_events(self, Populations, pop_name):
-                pass
-
-            def population_report(self, Populations, pop_name):
-                sequences = [''.join(org.genome[0].sequence) for org in Populations[pop_name].agents]
-                identities = [org.status['identity'] for org in Populations[pop_name].agents]
-                locations = [str(org.status['location']) for org in Populations[pop_name].agents]
-                demes = [org.status['deme'] for org in Populations[pop_name].agents]
-                return '\n'.join(sequences)
-
-            def database_report(self, con, cur, start_time,
-                                Populations, World, generation_count):
-                try:
-                    dose.database_report_populations(con, cur, start_time,
-                                                     Populations, generation_count)
-                except:
-                    pass
-                try:
-                    dose.database_report_world(con, cur, start_time,
-                                               World, generation_count)
-                except:
-                    pass
-
-            def deployment_scheme(self, Populations, pop_name, World):
-                pass
-
-        if not os.path.exists('logs'):
-            os.makedirs('logs')
-        sys.stdout = open("logs/" + str(os.getpid()) + ".log", "w")
-
-        dose.simulate(parameters, simulation_functions, eb)
-
-    @staticmethod
-    def parse_simulation(sim):
+        eb = dose.event_broker()
+        eb.subscribe(events.SIMULATION_START,
+                     lambda data: on_simulation_start(data, trial))
+        eb.subscribe(events.SIMULATION_END,
+                     lambda data: on_simulation_end(data, trial))
+        eb.subscribe(events.GENERATION_POPULATIONS_UPDATE,
+                     lambda data: on_generation_populations_update(data, trial))
+        eb.subscribe(events.GENERATION_WORLD_UPDATE,
+                     lambda data: on_generation_world_update(data, trial))
 
         parameters = {
             "simulation_name": sim.name,
@@ -200,48 +240,5 @@ class SimulationManager(Manager):
         if sim.initial_chromosome is not None:
             parameters['initial_chromosome'] = list(sim.initial_chromosome)
 
-        return parameters
-
-    @staticmethod
-    def on_simulation_start(data, trial):
-        trial.status = models.Trial.RUNNING
-        trial.directory = data['directory']
-        trial.max_generation = data['max_generation']
-        trial.current_generation = data['generation']
-        trial.start_time = timezone.make_aware(data['time_start'], timezone.get_current_timezone())
-        trial.save(update_fields=['status', 'directory', 'max_generation', 'current_generation', 'start_time'])
-
-    @staticmethod
-    def on_generation_world_update(data, trial):
-        pass
-
-    @staticmethod
-    def on_generation_populations_update(data, trial):
-        trial.current_generation = data['generation']
-        trial.save(update_fields=['current_generation'])
-
-    @staticmethod
-    def on_simulation_end(data, trial):
-        trial.status = models.Trial.DONE
-        trial.end_time = timezone.make_aware(data['time_end'], timezone.get_current_timezone())
-        trial.save(update_fields=['status', 'end_time'])
-
-    @staticmethod
-    def run_simulation(simulation):
-
-        trial = models.Trial(simulation = simulation)
-        trial.save()
-
-        eb = dose.event_broker()
-        eb.subscribe(events.SIMULATION_START,
-                     lambda data: SimulationManager.on_simulation_start(data, trial))
-        eb.subscribe(events.SIMULATION_END,
-                     lambda data: SimulationManager.on_simulation_end(data, trial))
-        eb.subscribe(events.GENERATION_POPULATIONS_UPDATE,
-                     lambda data: SimulationManager.on_generation_populations_update(data, trial))
-        eb.subscribe(events.GENERATION_WORLD_UPDATE,
-                     lambda data: SimulationManager.on_generation_world_update(data, trial))
-
-        parameters = SimulationManager.parse_simulation(simulation)
-        simulation = Process(target=SimulationManager.__simulation_woker__, args=(parameters, eb, ))
+        simulation = Process(target=simulation_worker, args=(parameters, eb,))
         simulation.start()

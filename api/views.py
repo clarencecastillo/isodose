@@ -35,9 +35,14 @@ class SimulationViewSet(ModelViewSet):
 
     @detail_route(methods=['get'])
     def run(self, request, *args, **kwargs):
+
         simulation = Simulation.objects.get(pk=kwargs['simId'])
-        SimulationManager.run_simulation(simulation)
-        return Response('started!')
+
+        trial = Trial(simulation=simulation)
+        trial.save()
+
+        SimulationManager.run_simulation(simulation, trial)
+        return Response(TrialSerializer(trial).data)
 
 class TrialViewSet(ModelViewSet):
     """
